@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Limpa Mac</title>
+<style>
+  :root { --bg:#0f1420; --card:#171e2e; --borda:#263049; --txt:#e8ecf4; --sub:#93a0b8; --ok:#3fb97a; --alerta:#e0a63a; --ruim:#e5534b; --azul:#5b8cff; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:var(--bg); color:var(--txt); }
+  main { max-width:1100px; margin:0 auto; padding:24px 16px 60px; }
+  h1 { font-size:22px; margin:0 0 4px; } .sub { color:var(--sub); }
+  .grade { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin:18px 0; }
+  .card { background:var(--card); border:1px solid var(--borda); border-radius:14px; padding:14px 16px; }
+  .rotulo { color:var(--sub); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  .num { font-size:26px; font-weight:700; margin-top:4px; }
+  .barra { height:8px; background:#0b0f18; border-radius:6px; margin-top:8px; overflow:hidden; }
+  .barra > i { display:block; height:100%; background:var(--azul); }
+  .linha { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:18px 0 8px; }
+  button { background:var(--azul); color:#fff; border:0; border-radius:9px; padding:8px 14px; font-weight:600; cursor:pointer; }
+  button.sec { background:#2a3550; } button.perigo { background:var(--ruim); } button:disabled { opacity:.45; cursor:default; }
+  select { background:#0b0f18; color:var(--txt); border:1px solid var(--borda); border-radius:9px; padding:7px 10px; }
+  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--borda); border-radius:14px; overflow:hidden; }
+  th, td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--borda); vertical-align:top; }
+  th { color:var(--sub); font-weight:600; font-size:12px; }
+  td.tam { text-align:right; white-space:nowrap; font-weight:700; }
+  .tag { display:inline-block; border-radius:20px; padding:2px 9px; font-size:12px; font-weight:600; }
+  .seguro { background:#173a2a; color:var(--ok); } .confirmar { background:#3d3016; color:var(--alerta); }
+  .cam { color:var(--sub); font-size:12px; word-break:break-all; } .obs { font-size:12px; color:var(--alerta); }
+  .obs.ok { color:var(--ok); }
+  #aviso { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:var(--ruim); color:#fff; padding:10px 16px; border-radius:10px; display:none; }
+  .procs td { padding:6px 12px; }
+  @media (max-width:640px){ .esconde { display:none; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Limpa Mac</h1>
+  <div class="sub">O que ocupa memória e disco, e o que pode sair. Nada é apagado direto: vai para a Lixeira, que você esvazia quando quiser.</div>
+
+  <div class="grade">
+    <div class="card"><div class="rotulo">Disco usado</div><div class="num" id="disco">…</div><div class="barra"><i id="discoBarra"></i></div><div class="sub" id="discoLivre"></div></div>
+    <div class="card"><div class="rotulo">Pode liberar (lista)</div><div class="num" id="liberavel">…</div><div class="sub" id="liberavelSeguro"></div></div>
+    <div class="card"><div class="rotulo">Lixeira</div><div class="num" id="lixeira">…</div><button class="perigo" id="btnEsvaziar" style="margin-top:8px">Esvaziar Lixeira</button></div>
+    <div class="card"><div class="rotulo">Memória</div><div class="num" id="mem">…</div><div class="sub" id="swap"></div></div>
+  </div>
+
+  <div class="linha">
+    <button id="btnVarrer">Varrer de novo</button>
+    <select id="filtro"><option value="">Todos</option><option value="seguro">Só seguros</option><option value="confirmar">Só a confirmar</option></select>
+    <span class="sub" id="status"></span>
+  </div>
+
+  <table>
+    <thead><tr><th>O quê</th><th class="esconde">Grupo</th><th>Situação</th><th style="text-align:right">Tamanho</th><th></th></tr></thead>
+    <tbody id="lista"></tbody>
+  </table>
+
+  <h2 style="font-size:16px;margin:26px 0 8px">Quem mais usa memória agora</h2>
+  <table class="procs"><tbody id="procs"></tbody></table>
+
+  <h2 style="font-size:16px;margin:26px 0 8px">Histórico</h2>
+  <table class="procs"><tbody id="hist"></tbody></table>
+</main>
+<div id="aviso"></div>
+<script>
+const gb = b => (b/1073741824).toFixed(b >= 1073741824*10 ? 0 : 1) + " GB";
+const mb = b => b >= 1073741824 ? gb(b) : (b/1048576).toFixed(0) + " MB";
+let dados = null;
+
+function aviso(t){ const a=document.getElementById('aviso'); a.textContent=t; a.style.display='block'; setTimeout(()=>a.style.display='none',4000); }
+
+async function carregar(){
+  dados = await (await fetch('/api/estado')).json();
+  const s = dados.sistema;
+  document.getElementById('disco').textContent = gb(s.disco_usado) + " de " + gb(s.disco_total);
+  document.getElementById('discoBarra').style.width = (100*s.disco_usado/s.disco_total).toFixed(0)+'%';
+  document.getElementById('discoLivre').textContent = gb(s.disco_livre) + " livres · meta: metade usada";
+  document.getElementById('lixeira').textContent = mb(s.lixeira);
+  document.getElementById('mem').textContent = (s.memoria_livre.match(/\d+%/)||['?'])[0] + " livre";
+  const sw = s.swap.match(/used = ([\d.]+)M/); document.getElementById('swap').textContent = "Swap usado: " + (sw ? (sw[1]/1024).toFixed(1)+" GB" : "?");
+  document.getElementById('procs').innerHTML = s.processos.map(p=>`<tr><td>${p.nome}</td><td class="tam">${mb(p.bytes)}</td></tr>`).join('');
+  const tot = dados.itens.reduce((a,i)=>a+i.bytes,0), seg = dados.itens.filter(i=>i.nivel==='seguro').reduce((a,i)=>a+i.bytes,0);
+  document.getElementById('liberavel').textContent = gb(tot);
+  document.getElementById('liberavelSeguro').textContent = gb(seg) + " sem risco";
+  document.getElementById('status').textContent = dados.varrendo ? "Varrendo… (pode levar uns minutos)" : (dados.atualizado ? "Varrido às " + dados.atualizado : "");
+  desenhar();
+  const h = await (await fetch('/api/historico')).json();
+  document.getElementById('hist').innerHTML = h.length ? h.map(x=>`<tr><td>${x.quando}</td><td>${x.acao==='lixeira'?'Para a Lixeira':'Lixeira esvaziada'}</td><td class="cam">${x.caminho.replace(/^\/Users\/[^/]+/,'~')}</td><td class="tam">${mb(x.bytes)}</td></tr>`).join('') : '<tr><td class="sub">Nada ainda.</td></tr>';
+  if (dados.varrendo) setTimeout(carregar, 4000);
+}
+
+function desenhar(){
+  const f = document.getElementById('filtro').value;
+  const itens = dados.itens.filter(i=>!f || i.nivel===f);
+  document.getElementById('lista').innerHTML = itens.length ? itens.map((i,k)=>`
+    <tr>
+      <td><b>${i.nome.split('/').pop()}</b><div class="cam">${i.nome}</div><div class="sub">${i.por_que}</div>${i.obs?`<div class="obs ${i.nivel==='seguro'?'ok':''}">${i.obs}</div>`:''}</td>
+      <td class="esconde">${i.grupo}</td>
+      <td><span class="tag ${i.nivel}">${i.nivel==='seguro'?'Seguro':'Confirmar'}</span></td>
+      <td class="tam">${gb(i.bytes)}</td>
+      <td><button class="sec" data-c="${encodeURIComponent(i.caminho)}" data-n="${i.nivel}">Mover para a Lixeira</button></td>
+    </tr>`).join('') : `<tr><td class="sub" colspan="5">${dados.varrendo?'Varrendo…':'Nada a mostrar.'}</td></tr>`;
+}
+
+document.getElementById('lista').addEventListener('click', async e=>{
+  const b = e.target.closest('button'); if(!b) return;
+  const c = decodeURIComponent(b.dataset.c);
+  if (b.dataset.n==='confirmar' && !confirm('Este item precisa de confirmação:\n\n'+c+'\n\nMover para a Lixeira?')) return;
+  b.disabled = true; b.textContent = 'Movendo…';
+  const r = await (await fetch('/api/lixeira',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({caminho:c})})).json();
+  if(!r.ok){ aviso(r.msg); b.disabled=false; b.textContent='Mover para a Lixeira'; return; }
+  carregar();
+});
+document.getElementById('btnVarrer').onclick = async ()=>{ await fetch('/api/varrer',{method:'POST'}); setTimeout(carregar,500); };
+document.getElementById('btnEsvaziar').onclick = async ()=>{
+  if(!confirm('Esvaziar a Lixeira apaga de vez. Continuar?')) return;
+  await fetch('/api/esvaziar',{method:'POST'}); carregar();
+};
+document.getElementById('filtro').onchange = desenhar;
+carregar(); setInterval(()=>{ if(!dados||!dados.varrendo) carregar(); }, 20000);
+</script>
+</body>
+</html>
