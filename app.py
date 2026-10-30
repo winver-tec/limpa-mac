@@ -158,6 +158,8 @@ def varrer_apps():
                     dias = int((time.time() - time.mktime(time.strptime(uso, "%Y-%m-%d"))) // 86400)
                 except Exception:
                     pass
+            if dias is not None and dias <= DIAS_SEM_USO:
+                continue  # app em uso não entra na lista
             extras = dados_do_app(app, bundle)
             b_app, b_dados = tamanho(app), sum(tamanho(p) for p in extras)
             obs = ("Sem registro de uso" if dias is None else f"Último uso há {dias} dias ({uso})") + \
