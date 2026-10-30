@@ -114,6 +114,13 @@ async function carregar(){
   document.getElementById('liberavel').textContent = gb(tot);
   document.getElementById('liberavelSeguro').textContent = gb(seg) + " sem risco";
   document.getElementById('status').textContent = dados.varrendo ? "Varrendo… (pode levar uns minutos)" : (dados.atualizado ? "Varrido às " + dados.atualizado : "");
+  // Fila velha: o que não está mais na lista atual (já apagado ou saiu por regra) sai da fila sozinho.
+  if (!dados.varrendo && dados.atualizado) {
+    const atuais = new Set(dados.itens.map(i=>i.caminho));
+    let mudou = false;
+    for (const c of Object.keys(fila)) if (!atuais.has(c)) { delete fila[c]; mudou = true; }
+    if (mudou) salvarFila();
+  }
   desenhar();
   const h = await (await fetch('/api/historico')).json();
   document.getElementById('hist').innerHTML = h.length ? h.map(x=>`<tr><td>${x.quando}</td><td>${x.acao==='lixeira'?'Para a Lixeira':'Lixeira esvaziada'}</td><td class="cam">${x.caminho.replace(/^\/Users\/[^/]+/,'~')}</td><td class="tam">${mb(x.bytes)}</td></tr>`).join('') : '<tr><td class="sub">Nada ainda.</td></tr>';

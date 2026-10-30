@@ -226,11 +226,11 @@ def registrar(acao, caminho, bytes_):
 def para_lixeira(caminho):
     alvo = conhecidos.get(caminho)
     p = Path(caminho)
-    if not alvo:
-        return False, "item desconhecido; clique em Varrer de novo"
     if not p.exists():
         estado["itens"] = [i for i in estado["itens"] if i["caminho"] != caminho]
         return True, "já não existia"
+    if not alvo:
+        return False, "saiu da lista na última varredura (ex.: app usado há pouco); tire da fila"
     if "worktrees" in caminho and (p / ".git").exists():
         ok, obs = git_seguro(p)
         if not ok:
