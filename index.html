@@ -53,6 +53,7 @@
   <div class="abas">
     <button class="aba ativa" data-aba="lista">Pode remover <span id="nLista" class="cont"></span></button>
     <button class="aba" data-aba="fila">Fila de exclusão <span id="nFila" class="cont"></span></button>
+    <button class="aba" data-aba="mantidos">Mantidos <span id="nMantidos" class="cont"></span></button>
   </div>
 
   <section id="painelLista">
@@ -78,6 +79,11 @@
       <thead><tr><th>O quê</th><th>Situação</th><th style="text-align:right">Tamanho</th><th></th></tr></thead>
       <tbody id="fila"></tbody>
     </table>
+  </section>
+
+  <section id="painelMantidos" style="display:none">
+    <div class="linha"><span class="sub">Itens que você escolheu manter. Não aparecem mais na lista; desfaça quando quiser.</span></div>
+    <table><tbody id="mantidos"></tbody></table>
   </section>
 
   <h2 style="font-size:16px;margin:26px 0 8px">Quem mais usa memória agora</h2>
@@ -135,7 +141,7 @@ function desenhar(){
   let itens = livres.filter(i=> !f ? true : f==='app' ? i.tipo==='app' : f==='app-sem-uso' ? (i.tipo==='app' && i.sem_uso) : (i.nivel===f && i.tipo!=='app'));
   if (f==='app') itens.sort((a,b)=>(b.sem_uso-a.sem_uso)||(b.bytes-a.bytes));
   document.getElementById('lista').innerHTML = itens.length
-    ? itens.map(i=>linhaItem(i,{grupo:true, html:`<button class="sec" data-acao="fila" data-n="${i.nivel}">Pôr na fila</button>`})).join('')
+    ? itens.map(i=>linhaItem(i,{grupo:true, html:`<button class="sec" data-acao="fila" data-n="${i.nivel}">Pôr na fila</button> <button class="sec" data-acao="manter" title="Não listar mais este item">Manter</button>`})).join('')
     : `<tr><td class="sub" colspan="5">${dados.varrendo?'Varrendo…':'Nada a mostrar.'}</td></tr>`;
   const fl = Object.values(fila);
   document.getElementById('fila').innerHTML = fl.length
@@ -150,7 +156,13 @@ function desenhar(){
 
 function porNaFila(i){ fila[i.caminho] = i; salvarFila(); desenhar(); }
 
-document.getElementById('lista').addEventListener('click', e=>{
+document.getElementById('lista').addEventListener('click', async e=>{
+  const m = e.target.closest('button[data-acao="manter"]');
+  if (m) {
+    const c = decodeURIComponent(m.closest('tr').dataset.c);
+    await fetch('/api/manter',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({caminho:c})});
+    dados.itens = dados.itens.filter(x=>x.caminho!==c); desenhar(); carregarMantidos(); return;
+  }
   const b = e.target.closest('button[data-acao="fila"]'); if(!b) return;
   const c = decodeURIComponent(b.closest('tr').dataset.c);
   const i = dados.itens.find(x=>x.caminho===c); if(!i) return;
@@ -189,12 +201,24 @@ document.querySelectorAll('.aba').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.aba').forEach(x=>x.classList.toggle('ativa', x===b));
   document.getElementById('painelLista').style.display = b.dataset.aba==='lista' ? '' : 'none';
   document.getElementById('painelFila').style.display = b.dataset.aba==='fila' ? '' : 'none';
+  document.getElementById('painelMantidos').style.display = b.dataset.aba==='mantidos' ? '' : 'none';
 });
 document.getElementById('btnVarrer').onclick = async ()=>{ await fetch('/api/varrer',{method:'POST'}); setTimeout(carregar,500); };
 document.getElementById('btnEsvaziar').onclick = async ()=>{
   if(!confirm('Esvaziar a Lixeira apaga de vez. Continuar?')) return;
   await fetch('/api/esvaziar',{method:'POST'}); carregar();
 };
+async function carregarMantidos(){
+  const m = await (await fetch('/api/mantidos')).json();
+  document.getElementById('nMantidos').textContent = m.length || '';
+  document.getElementById('mantidos').innerHTML = m.length ? m.map(i=>`<tr data-c="${encodeURIComponent(i.caminho)}"><td><b>${i.nome.split('/').pop()}</b><div class="cam">${i.nome}</div><div class="sub">${i.grupo} · mantido em ${i.quando}</div></td><td class="tam">${gb(i.bytes)}</td><td><button class="sec" data-acao="desfazer">Voltar para a lista</button></td></tr>`).join('') : '<tr><td class="sub">Nenhum item mantido.</td></tr>';
+}
+document.getElementById('mantidos').addEventListener('click', async e=>{
+  const b = e.target.closest('button[data-acao="desfazer"]'); if(!b) return;
+  await fetch('/api/manter',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({caminho:decodeURIComponent(b.closest('tr').dataset.c),desfazer:true})});
+  carregarMantidos();
+});
+carregarMantidos();
 document.getElementById('filtro').onchange = desenhar;
 carregar(); setInterval(()=>{ if(!dados||!dados.varrendo) carregar(); }, 20000);
 </script>

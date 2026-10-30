@@ -12,6 +12,7 @@ from pathlib import Path
 HOME = Path.home()
 AQUI = Path(__file__).resolve().parent
 HIST = AQUI / "historico.jsonl"
+MANTIDOS = AQUI / "mantidos.json"  # itens que o dono quer manter: não aparecem mais na lista
 PORTA = 8765
 TRASH = HOME / ".Trash"
 PROJETOS = HOME / "Documents" / "Projetos"
@@ -171,13 +172,25 @@ def varrer_apps():
     return itens
 
 
+def mantidos():
+    try:
+        return json.loads(MANTIDOS.read_text())
+    except Exception:
+        return {}
+
+
+def salvar_mantidos(m):
+    MANTIDOS.write_text(json.dumps(m, ensure_ascii=False, indent=1))
+
+
 def rodar_varredura():
     with trava:
         if estado["varrendo"]:
             return
         estado["varrendo"] = True
     try:
-        estado["itens"] = varrer()
+        m = mantidos()
+        estado["itens"] = [i for i in varrer() if i["caminho"] not in m]
         conhecidos.update({i["caminho"]: i for i in estado["itens"]})
         estado["erro"] = None
     except Exception as e:
@@ -273,6 +286,8 @@ class H(BaseHTTPRequestHandler):
             self.wfile.write(d)
         elif self.path == "/api/estado":
             self._json({**estado, "sistema": sistema()})
+        elif self.path == "/api/mantidos":
+            self._json(list(mantidos().values()))
         elif self.path == "/api/historico":
             linhas = HIST.read_text().splitlines() if HIST.exists() else []
             self._json([json.loads(l) for l in linhas[-50:]][::-1])
@@ -288,6 +303,19 @@ class H(BaseHTTPRequestHandler):
         elif self.path == "/api/lixeira":
             ok, msg = para_lixeira(body.get("caminho", ""))
             self._json({"ok": ok, "msg": msg}, 200 if ok else 400)
+        elif self.path == "/api/manter":
+            c = body.get("caminho", "")
+            m = mantidos()
+            if body.get("desfazer"):
+                m.pop(c, None)
+            else:
+                alvo = conhecidos.get(c)
+                if not alvo:
+                    return self._json({"ok": False, "msg": "item desconhecido"}, 400)
+                m[c] = {k: alvo[k] for k in ("caminho", "nome", "grupo", "bytes")} | {"quando": time.strftime("%Y-%m-%d %H:%M")}
+                estado["itens"] = [i for i in estado["itens"] if i["caminho"] != c]
+            salvar_mantidos(m)
+            self._json({"ok": True})
         elif self.path == "/api/esvaziar":
             ok, msg = esvaziar_lixeira()
             self._json({"ok": ok, "msg": msg})
