@@ -58,7 +58,7 @@
   <section id="painelLista">
     <div class="linha">
       <button id="btnVarrer" class="sec">Varrer de novo</button>
-      <select id="filtro"><option value="">Todos</option><option value="seguro">Só seguros</option><option value="confirmar">Só a confirmar</option></select>
+      <select id="filtro"><option value="">Todos</option><option value="seguro">Só seguros</option><option value="confirmar">Só a confirmar</option><option value="app-sem-uso">Aplicativos sem uso</option><option value="app">Todos os aplicativos</option></select>
       <button id="btnTodosSeguros">Pôr todos os seguros na fila</button>
       <span class="sub" id="status"></span>
     </div>
@@ -132,7 +132,8 @@ const linhaItem = (i, botao) => `
 function desenhar(){
   const f = document.getElementById('filtro').value;
   const livres = dados.itens.filter(i=>!fila[i.caminho]);
-  const itens = livres.filter(i=>!f || i.nivel===f);
+  let itens = livres.filter(i=> !f ? true : f==='app' ? i.tipo==='app' : f==='app-sem-uso' ? (i.tipo==='app' && i.sem_uso) : (i.nivel===f && i.tipo!=='app'));
+  if (f==='app') itens.sort((a,b)=>(b.sem_uso-a.sem_uso)||(b.bytes-a.bytes));
   document.getElementById('lista').innerHTML = itens.length
     ? itens.map(i=>linhaItem(i,{grupo:true, html:`<button class="sec" data-acao="fila" data-n="${i.nivel}">Pôr na fila</button>`})).join('')
     : `<tr><td class="sub" colspan="5">${dados.varrendo?'Varrendo…':'Nada a mostrar.'}</td></tr>`;

@@ -116,8 +116,56 @@ def varrer():
                 it = item(p, "Projetos: " + nome, w, "seguro" if nome != "node_modules" else "confirmar")
                 if it and it["bytes"] > 50 * 1024 * 1024:
                     itens.append(it)
+    itens.extend(varrer_apps())
     itens = [i for i in itens if i]
     itens.sort(key=lambda i: -i["bytes"])
+    return itens
+
+
+DIAS_SEM_USO = 90
+
+
+def dados_do_app(app, bundle):
+    """Pastas de dados que o app deixa na Library do usuário (pelo id do pacote e pelo nome)."""
+    lib = HOME / "Library"
+    cands = []
+    for base in ["Application Support", "Caches", "Containers", "Group Containers", "Saved Application State",
+                 "HTTPStorages", "WebKit", "Logs"]:
+        d = lib / base
+        if not d.exists():
+            continue
+        for alvo in {bundle, app.stem, bundle + ".savedState" if bundle else ""} - {""}:
+            if (d / alvo).exists():
+                cands.append(d / alvo)
+        if base == "Group Containers" and bundle:
+            cands += list(d.glob("*." + bundle))
+    return [p for p in dict.fromkeys(cands) if not any(str(p).startswith(str(i)) for i in INTOCAVEIS)]
+
+
+def varrer_apps():
+    itens = []
+    for raiz in [Path("/Applications"), HOME / "Applications"]:
+        for app in sorted(a for a in raiz.glob("*.app") if not a.name.startswith(".")) if raiz.exists() else []:
+            bundle = sh(["mdls", "-raw", "-name", "kMDItemCFBundleIdentifier", str(app)])
+            if bundle.startswith("com.apple."):
+                continue
+            bundle = "" if bundle == "(null)" else bundle
+            uso = sh(["mdls", "-raw", "-name", "kMDItemLastUsedDate", str(app)])
+            uso = "" if uso in ("", "(null)") else uso[:10]
+            dias = None
+            if uso:
+                try:
+                    dias = int((time.time() - time.mktime(time.strptime(uso, "%Y-%m-%d"))) // 86400)
+                except Exception:
+                    pass
+            extras = dados_do_app(app, bundle)
+            b_app, b_dados = tamanho(app), sum(tamanho(p) for p in extras)
+            obs = ("Sem registro de uso" if dias is None else f"Último uso há {dias} dias ({uso})") + \
+                  (f" · dados {b_dados / 2**30:.1f} GB" if b_dados > 50 * 2**20 else "")
+            itens.append({"caminho": str(app), "nome": str(app).replace(str(HOME), "~"), "grupo": "Aplicativos",
+                          "por_que": "Aplicativo e os dados dele na Library (vão juntos para a Lixeira).",
+                          "nivel": "confirmar", "obs": obs, "bytes": b_app + b_dados, "tipo": "app",
+                          "sem_uso": dias is None or dias > DIAS_SEM_USO, "extras": [str(p) for p in extras]})
     return itens
 
 
@@ -172,6 +220,18 @@ def para_lixeira(caminho):
         ok, obs = git_seguro(p)
         if not ok:
             return False, "bloqueado: " + obs
+    if alvo.get("tipo") == "app":
+        # O app vai pelo Finder (pede a senha do Mac quando o app é do administrador); os dados dele, direto.
+        r = subprocess.run(["osascript", "-e", f'tell application "Finder" to delete (POSIX file "{caminho}")'],
+                           capture_output=True, text=True, timeout=180)
+        if r.returncode != 0:
+            return False, "o Finder não moveu o app (feche o app e tente de novo)"
+        for x in alvo.get("extras", []):
+            if Path(x).exists():
+                shutil.move(x, str(TRASH / (Path(x).name + "-" + time.strftime("%H%M%S"))))
+        registrar("lixeira", caminho, alvo["bytes"])
+        estado["itens"] = [i for i in estado["itens"] if i["caminho"] != caminho]
+        return True, "app e dados movidos para a Lixeira"
     destino = TRASH / (p.name + "-" + time.strftime("%H%M%S"))
     shutil.move(str(p), str(destino))
     registrar("lixeira", caminho, alvo["bytes"])
