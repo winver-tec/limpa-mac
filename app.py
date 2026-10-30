@@ -21,6 +21,7 @@ INTOCAVEIS = [HOME / ".config" / "winver", HOME / ".config" / "marvee", HOME / "
               HOME / ".claude" / "projects", HOME / "Documents" / "Projetos" / "Winver" / ".maestri"]
 
 estado = {"varrendo": False, "atualizado": None, "itens": [], "erro": None}
+conhecidos = {}  # caminho -> item, de todas as varreduras desta execução
 trava = threading.Lock()
 
 
@@ -127,6 +128,7 @@ def rodar_varredura():
         estado["varrendo"] = True
     try:
         estado["itens"] = varrer()
+        conhecidos.update({i["caminho"]: i for i in estado["itens"]})
         estado["erro"] = None
     except Exception as e:
         estado["erro"] = str(e)
@@ -159,10 +161,13 @@ def registrar(acao, caminho, bytes_):
 
 
 def para_lixeira(caminho):
-    alvo = next((i for i in estado["itens"] if i["caminho"] == caminho), None)
-    if not alvo:
-        return False, "item fora da lista"
+    alvo = conhecidos.get(caminho)
     p = Path(caminho)
+    if not alvo:
+        return False, "item desconhecido; clique em Varrer de novo"
+    if not p.exists():
+        estado["itens"] = [i for i in estado["itens"] if i["caminho"] != caminho]
+        return True, "já não existia"
     if "worktrees" in caminho and (p / ".git").exists():
         ok, obs = git_seguro(p)
         if not ok:

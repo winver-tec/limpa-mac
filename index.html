@@ -30,6 +30,11 @@
   .obs.ok { color:var(--ok); }
   #aviso { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:var(--ruim); color:#fff; padding:10px 16px; border-radius:10px; display:none; }
   .procs td { padding:6px 12px; }
+  .abas { display:flex; gap:6px; margin-top:22px; border-bottom:1px solid var(--borda); }
+  .aba { background:transparent; color:var(--sub); border-radius:9px 9px 0 0; padding:10px 16px; }
+  .aba.ativa { background:var(--card); color:var(--txt); border:1px solid var(--borda); border-bottom-color:var(--card); margin-bottom:-1px; }
+  .cont { background:#2a3550; border-radius:20px; padding:1px 8px; font-size:12px; margin-left:4px; }
+  tr.saindo { opacity:.35; }
   @media (max-width:640px){ .esconde { display:none; } }
 </style>
 </head>
@@ -45,16 +50,35 @@
     <div class="card"><div class="rotulo">Memória</div><div class="num" id="mem">…</div><div class="sub" id="swap"></div></div>
   </div>
 
-  <div class="linha">
-    <button id="btnVarrer">Varrer de novo</button>
-    <select id="filtro"><option value="">Todos</option><option value="seguro">Só seguros</option><option value="confirmar">Só a confirmar</option></select>
-    <span class="sub" id="status"></span>
+  <div class="abas">
+    <button class="aba ativa" data-aba="lista">Pode remover <span id="nLista" class="cont"></span></button>
+    <button class="aba" data-aba="fila">Fila de exclusão <span id="nFila" class="cont"></span></button>
   </div>
 
-  <table>
-    <thead><tr><th>O quê</th><th class="esconde">Grupo</th><th>Situação</th><th style="text-align:right">Tamanho</th><th></th></tr></thead>
-    <tbody id="lista"></tbody>
-  </table>
+  <section id="painelLista">
+    <div class="linha">
+      <button id="btnVarrer" class="sec">Varrer de novo</button>
+      <select id="filtro"><option value="">Todos</option><option value="seguro">Só seguros</option><option value="confirmar">Só a confirmar</option></select>
+      <button id="btnTodosSeguros">Pôr todos os seguros na fila</button>
+      <span class="sub" id="status"></span>
+    </div>
+    <table>
+      <thead><tr><th>O quê</th><th class="esconde">Grupo</th><th>Situação</th><th style="text-align:right">Tamanho</th><th></th></tr></thead>
+      <tbody id="lista"></tbody>
+    </table>
+  </section>
+
+  <section id="painelFila" style="display:none">
+    <div class="linha">
+      <button id="btnExecutar" class="perigo">Mover a fila para a Lixeira</button>
+      <button id="btnLimparFila" class="sec">Esvaziar a fila</button>
+      <span class="sub" id="filaTotal"></span>
+    </div>
+    <table>
+      <thead><tr><th>O quê</th><th>Situação</th><th style="text-align:right">Tamanho</th><th></th></tr></thead>
+      <tbody id="fila"></tbody>
+    </table>
+  </section>
 
   <h2 style="font-size:16px;margin:26px 0 8px">Quem mais usa memória agora</h2>
   <table class="procs"><tbody id="procs"></tbody></table>
@@ -90,27 +114,80 @@ async function carregar(){
   if (dados.varrendo) setTimeout(carregar, 4000);
 }
 
+// Fila de exclusão: fica no navegador (sobrevive a recarregar a página).
+let fila = {};
+try { fila = JSON.parse(localStorage.getItem('limpaMacFila') || '{}'); } catch(e) {}
+const salvarFila = () => { try { localStorage.setItem('limpaMacFila', JSON.stringify(fila)); } catch(e) {} };
+let executando = false;
+
+const linhaItem = (i, botao) => `
+  <tr data-c="${encodeURIComponent(i.caminho)}">
+    <td><b>${i.nome.split('/').pop()}</b><div class="cam">${i.nome}</div><div class="sub">${i.por_que}</div>${i.obs?`<div class="obs ${i.nivel==='seguro'?'ok':''}">${i.obs}</div>`:''}</td>
+    ${botao.grupo ? `<td class="esconde">${i.grupo}</td>` : ''}
+    <td><span class="tag ${i.nivel}">${i.nivel==='seguro'?'Seguro':'Confirmar'}</span></td>
+    <td class="tam">${gb(i.bytes)}</td>
+    <td>${botao.html}</td>
+  </tr>`;
+
 function desenhar(){
   const f = document.getElementById('filtro').value;
-  const itens = dados.itens.filter(i=>!f || i.nivel===f);
-  document.getElementById('lista').innerHTML = itens.length ? itens.map((i,k)=>`
-    <tr>
-      <td><b>${i.nome.split('/').pop()}</b><div class="cam">${i.nome}</div><div class="sub">${i.por_que}</div>${i.obs?`<div class="obs ${i.nivel==='seguro'?'ok':''}">${i.obs}</div>`:''}</td>
-      <td class="esconde">${i.grupo}</td>
-      <td><span class="tag ${i.nivel}">${i.nivel==='seguro'?'Seguro':'Confirmar'}</span></td>
-      <td class="tam">${gb(i.bytes)}</td>
-      <td><button class="sec" data-c="${encodeURIComponent(i.caminho)}" data-n="${i.nivel}">Mover para a Lixeira</button></td>
-    </tr>`).join('') : `<tr><td class="sub" colspan="5">${dados.varrendo?'Varrendo…':'Nada a mostrar.'}</td></tr>`;
+  const livres = dados.itens.filter(i=>!fila[i.caminho]);
+  const itens = livres.filter(i=>!f || i.nivel===f);
+  document.getElementById('lista').innerHTML = itens.length
+    ? itens.map(i=>linhaItem(i,{grupo:true, html:`<button class="sec" data-acao="fila" data-n="${i.nivel}">Pôr na fila</button>`})).join('')
+    : `<tr><td class="sub" colspan="5">${dados.varrendo?'Varrendo…':'Nada a mostrar.'}</td></tr>`;
+  const fl = Object.values(fila);
+  document.getElementById('fila').innerHTML = fl.length
+    ? fl.map(i=>linhaItem(i,{grupo:false, html:executando?'':`<button class="sec" data-acao="tirar">Tirar da fila</button>`})).join('')
+    : '<tr><td class="sub" colspan="4">A fila está vazia. Na aba "Pode remover", clique em "Pôr na fila".</td></tr>';
+  const totFila = fl.reduce((a,i)=>a+i.bytes,0);
+  document.getElementById('nLista').textContent = livres.length;
+  document.getElementById('nFila').textContent = fl.length + (fl.length ? ' · ' + gb(totFila) : '');
+  document.getElementById('filaTotal').textContent = fl.length ? `${fl.length} itens, ${gb(totFila)} a liberar` : '';
+  document.getElementById('btnExecutar').disabled = !fl.length || executando;
 }
 
-document.getElementById('lista').addEventListener('click', async e=>{
-  const b = e.target.closest('button'); if(!b) return;
-  const c = decodeURIComponent(b.dataset.c);
-  if (b.dataset.n==='confirmar' && !confirm('Este item precisa de confirmação:\n\n'+c+'\n\nMover para a Lixeira?')) return;
-  b.disabled = true; b.textContent = 'Movendo…';
-  const r = await (await fetch('/api/lixeira',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({caminho:c})})).json();
-  if(!r.ok){ aviso(r.msg); b.disabled=false; b.textContent='Mover para a Lixeira'; return; }
+function porNaFila(i){ fila[i.caminho] = i; salvarFila(); desenhar(); }
+
+document.getElementById('lista').addEventListener('click', e=>{
+  const b = e.target.closest('button[data-acao="fila"]'); if(!b) return;
+  const c = decodeURIComponent(b.closest('tr').dataset.c);
+  const i = dados.itens.find(x=>x.caminho===c); if(!i) return;
+  if (i.nivel==='confirmar' && !confirm('Este item precisa de confirmação:\n\n'+i.nome+'\n'+i.por_que+(i.obs?'\n'+i.obs:'')+'\n\nPôr na fila de exclusão?')) return;
+  porNaFila(i);
+});
+document.getElementById('fila').addEventListener('click', e=>{
+  const b = e.target.closest('button[data-acao="tirar"]'); if(!b) return;
+  delete fila[decodeURIComponent(b.closest('tr').dataset.c)]; salvarFila(); desenhar();
+});
+document.getElementById('btnTodosSeguros').onclick = ()=>{
+  const seg = dados.itens.filter(i=>i.nivel==='seguro' && !fila[i.caminho]);
+  if(!seg.length) return;
+  if(!confirm(`Pôr ${seg.length} itens seguros na fila (${gb(seg.reduce((a,i)=>a+i.bytes,0))})?`)) return;
+  seg.forEach(i=>fila[i.caminho]=i); salvarFila(); desenhar();
+};
+document.getElementById('btnLimparFila').onclick = ()=>{ fila = {}; salvarFila(); desenhar(); };
+document.getElementById('btnExecutar').onclick = async ()=>{
+  const fl = Object.values(fila); if(!fl.length) return;
+  if(!confirm(`Mover ${fl.length} itens (${gb(fl.reduce((a,i)=>a+i.bytes,0))}) para a Lixeira?`)) return;
+  executando = true; desenhar();
+  let ok = 0, falhas = [];
+  for (const i of fl) {
+    const tr = document.querySelector(`#fila tr[data-c="${encodeURIComponent(i.caminho)}"]`); if (tr) tr.classList.add('saindo');
+    document.getElementById('filaTotal').textContent = `Movendo ${ok+falhas.length+1} de ${fl.length}…`;
+    const r = await (await fetch('/api/lixeira',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({caminho:i.caminho})})).json();
+    if (r.ok) { ok++; delete fila[i.caminho]; dados.itens = dados.itens.filter(x=>x.caminho!==i.caminho); }
+    else falhas.push(i.nome.split('/').pop()+': '+r.msg);
+    salvarFila();
+  }
+  executando = false;
+  if (falhas.length) aviso(`${falhas.length} não foram movidos: ` + falhas.slice(0,2).join(' · '));
   carregar();
+};
+document.querySelectorAll('.aba').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.aba').forEach(x=>x.classList.toggle('ativa', x===b));
+  document.getElementById('painelLista').style.display = b.dataset.aba==='lista' ? '' : 'none';
+  document.getElementById('painelFila').style.display = b.dataset.aba==='fila' ? '' : 'none';
 });
 document.getElementById('btnVarrer').onclick = async ()=>{ await fetch('/api/varrer',{method:'POST'}); setTimeout(carregar,500); };
 document.getElementById('btnEsvaziar').onclick = async ()=>{
